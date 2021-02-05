@@ -1,3 +1,4 @@
+.gitignore
 relay_socket_220V/Visual Micro/Compile.vmps.xml
 prototype board.psd
 .vscode/c_cpp_properties.json
