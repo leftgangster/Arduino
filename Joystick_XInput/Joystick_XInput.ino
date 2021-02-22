@@ -15,13 +15,13 @@ int thumb=7;
 int32_t range=512;
 
 // Deadzones {Handle X, Handle Y, Joystick X, Joystick Y}
-int deadzone[]={300,300,500,500};
+int deadzone[]={400,400,500,500};
 
 // -1 reversed, 1 NOT reversed
 int reverse[]={1,-1,-1,-1};
 
 // Ranges {{Handle X: Min, Middle, Max}{Handle Y: Min, Middle, Max}{Joystick X: Min, Middle, Max}{Joystick Y: Min, Middle, Max}}
-int16_t limit[][3]={{9500,13150,15500},{8700,13400,16700},{500,12000,23500},{500,12000,23500}};
+int16_t limit[][3]={{9500,12900,15300},{8500,13000,16700},{500,12000,23500},{500,12000,23500}};
 
 void setup(void) 
 {
@@ -59,10 +59,10 @@ void loop(void)
       adc[i]=limit[i][0];
     }
     if (adc[i]<limit[i][1]){
-      mapped_adc[i]=map(adc[i],limit[i][0],limit[i][1],range*(reverse[i]*(-1)),0);
+      mapped_adc[i]=map(adc[i],limit[i][0],limit[i][1]-deadzone[i]-1,range*(reverse[i]*(-1)),0);
     }
     if (adc[i]>limit[i][1]){
-      mapped_adc[i]=map(adc[i],limit[i][1],limit[i][2],0,range*(reverse[i]));
+      mapped_adc[i]=map(adc[i],limit[i][1]+deadzone[i]+1,limit[i][2],0,range*(reverse[i]));
     }
     if (adc[i]==limit[i][1]){
       mapped_adc[i]=0;
@@ -80,10 +80,10 @@ void loop(void)
     adc[0]=limit[0][1];
   }
   if (adc[0]<limit[0][1]){
-    mapped_adc[0]=map(adc[0],limit[0][0],limit[0][1],range*(reverse[0]*(-1)),0);
+    mapped_adc[0]=map(adc[0],limit[0][0],limit[0][1]-deadzone[0]-1,range*(reverse[0]*(-1)),0);
   }
   if (adc[0]>limit[0][1]){
-    mapped_adc[0]=map(adc[0],limit[0][1],limit[0][2],0,range*(reverse[0]));
+    mapped_adc[0]=map(adc[0],limit[0][1]+deadzone[0]+1,limit[0][2],0,range*(reverse[0]));
   }
   if (adc[0]==limit[0][1]){
     mapped_adc[0]=0;
@@ -100,10 +100,10 @@ void loop(void)
     adc[1]=limit[1][1];
   }
   if (adc[1]<limit[1][1]){
-    mapped_adc[1]=map(adc[1],limit[1][0],limit[1][1],range*(reverse[1]*(-1)),0);
+    mapped_adc[1]=map(adc[1],limit[1][0],limit[1][1]-deadzone[0]-1,range*(reverse[1]*(-1)),0);
   }
   if (adc[1]>limit[1][1]){
-    mapped_adc[1]=map(adc[1],limit[1][1],limit[1][2],0,range*(reverse[1]));
+    mapped_adc[1]=map(adc[1],limit[1][1]+deadzone[0]+1,limit[1][2],0,range*(reverse[1]));
   }
   if (adc[1]==limit[1][1]){
     mapped_adc[1]=0;
