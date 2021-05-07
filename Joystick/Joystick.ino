@@ -1,3 +1,5 @@
+// VID=0x2341, PID=0x8031, usb_product="Flight Stick"
+
 #include <Wire.h>
 #include <Adafruit_ADS1015.h>
 
@@ -12,21 +14,21 @@ Adafruit_ADS1115 ads;  /* Use this for the 16-bit version */
 
 #if !SerialMode
 Joystick_ Joystick(JOYSTICK_DEFAULT_REPORT_ID,JOYSTICK_TYPE_JOYSTICK,
-  6, 0,                  // Button Count, Hat Switch Count
+  7, 0,                  // Button Count, Hat Switch Count
   true, true, false,     // X and Y, but no Z Axis
   true, true, false,   // Rx, Ry, but no Rz
-  false, false,          // No rudder or throttle
+  true, false,          // No rudder or throttle
   false, false, false);  // No accelerator, brake, or steering
 #endif
 
-int16_t adc[4];
-int16_t mapped_adc[4];
+
+// SETTINGS -----------------------------------------------------------------------
 int trigger=5; //Pin for the trigger button
 int thumb=7; //Pin for the joystick click
 bool joyXhat=0; //0 Analog thumb joystick - 1 Act like arrow button
 bool joyYhat=1;
-
-int16_t range=512;
+int16_t filterDistanceX=50; //If the handle goes past this distance (raw messurment of magnetic sensors) then it is a valid move. Else don't move the axis
+int16_t filterDistanceY=30;
 
 // Deadzones {Handle X, Handle Y, Joystick X, Joystick Y}
 int deadzone[]={400,400,500,500}; //Defaults: 300,300,500,500
@@ -34,13 +36,30 @@ int deadzoneHat=350; //If the thumb joystick goes past the center value by this 
 int reverse[]={1,1,1,1}; // -1 reversed, 1 NOT reversed
 
 // Ranges {{Handle X: Min, Middle, Max}{Handle Y: Min, Middle, Max}{Joystick X: Min, Middle, Max}{Joystick Y: Min, Middle, Max}}
-int16_t limit[][3]={{9500,12900,15300},{8500,13000,16700},{500,12000,23500},{500,12000,23500}};
+int16_t limit[][3]={{9500,12700,15600},{8500,13200,16700},{500,12000,23500},{500,12000,23500}};
+int limit_analogs[][2]={{250,990},{220,990}};
+// SETTINGS -----------------------------------------------------------------------
+
+
+int16_t adc[4];
+int16_t last_adc[4];
+int analogs[2];
+int16_t mapped_adc[4];
+int mapped_analogs[2];
+bool toebrake=0;
+int16_t range=512;
+bool filterChecked[]={false,false};
 
 void setup(void) 
 {
   for (int i=0;i>4;i++){
     adc[i]=0;
     mapped_adc[i]=0;
+    last_adc[i]=0;
+  }
+  for (int i=0;i<2;i++){
+    analogs[i]=0;
+    mapped_analogs[i]=0;
   }
   pinMode(trigger,INPUT_PULLUP);
   pinMode(thumb,INPUT_PULLUP);
@@ -50,7 +69,11 @@ void setup(void)
     Joystick.setYAxisRange(range*(-1), range);
     Joystick.setRxAxisRange(range*(-1),range);
     Joystick.setRyAxisRange(range*(-1),range);
-    Joystick.begin();
+    //Joystick.setThrottleRange(range*(-1), range); // Using the throttle axis as toe brake (when you press both analog pedals together)
+    Joystick.setRudderRange(range*(-1), range);
+    Joystick.begin(false);
+
+    Joystick.setThrottle(range*(-1));
   #else
     ads.begin();
     Serial.begin(115200);
@@ -65,6 +88,9 @@ void loop(void)
   for (int i=0;i<4;i++){
     adc[i] = ads.readADC_SingleEnded(i);
   }
+  // Read the normal analog inputs
+  analogs[0]=analogRead(A0);
+  analogs[1]=analogRead(A1);
 
   // Filter the values of joystick
   for (int i=2;i<4;i++){
@@ -100,11 +126,32 @@ void loop(void)
   if (adc[0]>limit[0][1]-deadzone[0] && adc[0]<limit[0][1]+deadzone[0]){ //Middle deadzone
     adc[0]=limit[0][1];
   }
+
+
+  
   if (adc[0]<limit[0][1]){//Map the negative values only (useful if the left range on the joystick is different than the right range)
-    mapped_adc[0]=map(adc[0],limit[0][0],limit[0][1]-deadzone[0]-1,range*(reverse[0]*(-1)),0);
+    if ((adc[0] > last_adc[0]+filterDistanceX) || (adc[0] < last_adc[0]-filterDistanceX)){
+      last_adc[0]=adc[0];
+      filterChecked[0]=false;
+      mapped_adc[0]=map(adc[0],limit[0][0],limit[0][1]-deadzone[0]-1,range*(reverse[0]*(-1)),0);
+    }else{
+      if (!filterChecked[0]){
+        filterChecked[0]=true;
+        last_adc[0]=adc[0];
+      }
+    }
   }
   if (adc[0]>limit[0][1]){//Map the positive values only
-    mapped_adc[0]=map(adc[0],limit[0][1]+deadzone[0]+1,limit[0][2],0,range*(reverse[0]));
+    if ((adc[0] > last_adc[0]+filterDistanceX) || (adc[0] < last_adc[0]-filterDistanceX)){
+      filterChecked[0]=false;
+      last_adc[0]=adc[0];
+      mapped_adc[0]=map(adc[0],limit[0][1]+deadzone[0]+1,limit[0][2],0,range*(reverse[0]));
+    }else{
+      if (!filterChecked[0]){
+        filterChecked[0]=true;
+        last_adc[0]=adc[0];
+      }
+    }
   }
   if (adc[0]==limit[0][1]){//Check absolute center
     mapped_adc[0]=0;
@@ -123,14 +170,49 @@ void loop(void)
     adc[1]=limit[1][1];
   }
   if (adc[1]<limit[1][1]){
-    mapped_adc[1]=map(adc[1],limit[1][0],limit[1][1]-deadzone[1]-1,range*(reverse[1]*(-1)),0);
+    if ((adc[1] > last_adc[1]+filterDistanceX) || (adc[1] < last_adc[1]-filterDistanceX)){
+      filterChecked[1]=false;
+      last_adc[1]=adc[1];
+      mapped_adc[1]=map(adc[1],limit[1][0],limit[1][1]-deadzone[1]-1,range*(reverse[1]*(-1)),0);
+    }else{
+      if (!filterChecked[1]){
+        filterChecked[1]=true;
+        last_adc[1]=adc[1];
+      }
+    }
   }
   if (adc[1]>limit[1][1]){
-    mapped_adc[1]=map(adc[1],limit[1][1]+deadzone[1]+1,limit[1][2],0,range*(reverse[1]));
+    if ((adc[1] > last_adc[1]+filterDistanceX) || (adc[1] < last_adc[1]-filterDistanceX)){
+      filterChecked[1]=false;
+      last_adc[1]=adc[1];
+      mapped_adc[1]=map(adc[1],limit[1][1]+deadzone[1]+1,limit[1][2],0,range*(reverse[1]));
+    }else{
+      if (!filterChecked[1]){
+        filterChecked[1]=true;
+        last_adc[1]=adc[1];
+      }
+    }
   }
   if (adc[1]==limit[1][1]){
     mapped_adc[1]=0;
   }
+
+  //Filter analogs
+  if (analogs[0]<limit_analogs[0][0])  {
+    analogs[0]=limit_analogs[0][0];
+  }
+  if (analogs[0]>limit_analogs[0][1])  {
+    analogs[0]=limit_analogs[0][1];
+  }
+  mapped_analogs[0]=map(analogs[0],limit_analogs[0][1],limit_analogs[0][0],range*(-1),0);
+  
+  if (analogs[1]<limit_analogs[1][0])  {
+    analogs[1]=limit_analogs[1][0];
+  }
+  if (analogs[1]>limit_analogs[1][1])  {
+    analogs[1]=limit_analogs[1][1];
+  }
+  mapped_analogs[1]=map(analogs[1],limit_analogs[1][0],limit_analogs[1][1],0,range);
 
   #if SerialMode
       Serial.print("Handle X:  ");
@@ -181,6 +263,23 @@ void loop(void)
       }
       Serial.println(")");
 
+      if ((mapped_analogs[0]<0)&&(mapped_analogs[1]>0)){
+        Serial.print("Rudder (Toe Brake):  ");
+        Serial.print(abs((mapped_analogs[0]*(-1))+mapped_analogs[1])/2);
+      }else{
+        Serial.print("Rudder:  ");
+        Serial.print(mapped_analogs[0]+mapped_analogs[1]);
+      }
+      Serial.print(" (");
+      Serial.print(analogs[0]);
+      Serial.print(" - ");
+      Serial.print(mapped_analogs[0]);
+      Serial.print(", ");
+      Serial.print(analogs[1]);
+      Serial.print(" - ");
+      Serial.print(mapped_analogs[1]);
+      Serial.print(")");
+
       Serial.print(!digitalRead(trigger) ? "Trigger: Press" : "Trigger: ");
       Serial.print(" || ");
       Serial.println(!digitalRead(thumb) ? "Thumb: Press" : "Thumb: ");
@@ -189,7 +288,6 @@ void loop(void)
       
       /*Serial.print(", Maped Value: ");
       Serial.print(map(adc[i],0,65535,(range*(-1)),range));*/
-    delay(100);
   #else
     Joystick.setXAxis(mapped_adc[0]);
     Joystick.setYAxis(mapped_adc[1]);
@@ -221,8 +319,18 @@ void loop(void)
     }else{
       Joystick.setRyAxis(mapped_adc[3]);
     }
+    
+    if ((mapped_analogs[0]!=0)&&(mapped_analogs[1]!=0)){ //Pressing both pedals activates toe brake mode (both axes are combined to report a single value on ThrottleAxis)
+      Joystick.setButton(6,1);
+    }
+    if ((mapped_analogs[0]==0)||(mapped_analogs[1]==0)){
+      Joystick.setButton(6,0);
+    }
+    Joystick.setRudder(mapped_analogs[0] + mapped_analogs[1]);
+  
     Joystick.setButton(0,!digitalRead(trigger));
     Joystick.setButton(1,!digitalRead(thumb));
+    Joystick.sendState();
     delay(1);
   #endif
 }
